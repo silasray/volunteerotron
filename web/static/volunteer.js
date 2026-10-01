@@ -149,7 +149,7 @@
         });
         fieldset.append(choices);
       }
-      const hasTextField = type.fragment_types.some((ft) => ft.fragment_type === "text");
+      const hasTextField = type.fragment_types.some((ft) => ft.content_type === "text");
       if (hasTextField && items.length > 0) addFilter(fieldset, type, items, select);
       container.append(fieldset);
     });
@@ -180,16 +180,29 @@
     return { window_ids: checked("window"), enrichment_ids: checked("enrichment").concat(selects) };
   }
 
-  function setStatus(message, isError) {
+  // Errors also open a dialog; nothing the volunteer entered is touched.
+  const errorDialog = document.getElementById("form-error-dialog");
+  let errorFocus = null;
+  document.getElementById("form-error-ok").addEventListener("click", () => errorDialog.close());
+  errorDialog.addEventListener("close", () => {
+    if (errorFocus) errorFocus.focus();
+    errorFocus = null;
+  });
+
+  function setStatus(message, isError, focusAfter) {
     statusEl.textContent = message;
     statusEl.classList.toggle("error", Boolean(isError));
+    if (isError) {
+      document.getElementById("form-error-message").textContent = message.charAt(0).toUpperCase() + message.slice(1);
+      errorFocus = focusAfter || null;
+      errorDialog.showModal();
+    }
   }
 
   function requireEmail() {
     const email = emailInput.value.trim();
     if (!email || !emailInput.checkValidity()) {
-      setStatus("Enter a valid email address.", true);
-      emailInput.focus();
+      setStatus("Enter a valid email address.", true, emailInput);
       return null;
     }
     return email;

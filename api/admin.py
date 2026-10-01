@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 
 from .auth import require_user
 from .errors import ApiError
-from .models import Event, Organization, User, UserOrganization, db
+from .models import Event, Organization, User, UserOrganization, db, url_name_problem
 
 bp = Blueprint("api_admin", __name__)
 
@@ -68,9 +68,8 @@ def create_event(organization):
         raise ApiError("a JSON object body is required")
     name = _text_field(data, "name", "name")
     pretty_name = _text_field(data, "pretty_name", "pretty name")
-    if "/" in name:
-        # The name is a URL path segment.
-        raise ApiError("name must not contain '/'")
+    if problem := url_name_problem(name):
+        raise ApiError(problem)
 
     org = membership.organization
     if db.session.scalar(select(Event).filter_by(organization_id=org.id, name=name)):
@@ -213,8 +212,8 @@ def create_organization():
     data = _json_body()
     name = _text_field(data, "name", "name")
     pretty_name = _text_field(data, "pretty_name", "pretty name")
-    if "/" in name:
-        raise ApiError("name must not contain '/'")
+    if problem := url_name_problem(name):
+        raise ApiError(problem)
     if db.session.scalar(select(Organization).filter_by(name=name)):
         raise ApiError(f"an organization named {name!r} already exists", 409)
     org = Organization(name=name, pretty_name=pretty_name)

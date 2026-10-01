@@ -5,38 +5,21 @@ Description: >-
   a private VPC next to RDS Postgres, invoked only by the web Lambda. No NAT
   gateway: nothing in the VPC needs internet access.
 
-Metadata:
-  cfn-lint:
-    config:
-      ignore_checks:
-        # Secrets come in as NoEcho parameters rather than Secrets Manager:
-        # reaching Secrets Manager from inside the VPC needs a VPC endpoint
-        # (~$7/month), more than the rest of the stack costs at low traffic.
-        - W1011
-
 Parameters:
-  WebSecretKey:
+  # No secret parameters: the app keys are generated in Secrets Manager, RDS
+  # generates and keeps the master password, and the app logs in to the
+  # database with IAM tokens.
+  DbMasterUsername:
     Type: String
-    NoEcho: true
-    MinLength: 32
-    Description: Signs web session cookies. Long random string.
-  ApiSecretKey:
-    Type: String
-    NoEcho: true
-    MinLength: 32
-    Description: Signs API auth tokens. Long random string, different from WebSecretKey.
-  DbUsername:
-    Type: String
-    Default: scheduler
+    Default: scheduler_admin
     AllowedPattern: "[a-zA-Z][a-zA-Z0-9_]*"
-  DbPassword:
+    Description: RDS master user, used only once by the bootstrap-db command.
+  AppKeysVersion:
     Type: String
-    NoEcho: true
-    MinLength: 16
-    MaxLength: 64
-    # RDS rejects / @ " and spaces; letters and digits also keep the URL simple.
-    AllowedPattern: "[A-Za-z0-9]+"
-    Description: RDS master password (16-64 letters/digits).
+    Default: "1"
+    Description: >-
+      Bump (e.g. to 2) after replacing a value in WebSecretKeySecret or
+      ApiSecretKeySecret, so the functions pick up the new keys.
   DomainName:
     Type: String
     Default: ""
@@ -135,8 +118,12 @@ Resources:
       StorageType: gp2
       StorageEncrypted: true
       DBName: scheduler
-      MasterUsername: !Ref DbUsername
-      MasterUserPassword: !Ref DbPassword
+      MasterUsername: !Ref DbMasterUsername
+      # RDS generates the master password, stores it in Secrets Manager and
+      # rotates it; nothing in this stack or the functions ever holds it.
+      ManageMasterUserPassword: true
+      # The app logs in as scheduler_app with IAM tokens instead of a password.
+      EnableIAMDatabaseAuthentication: true
       DBSubnetGroupName: !Ref DatabaseSubnetGroup
       VPCSecurityGroups: [!Ref DatabaseSecurityGroup]
       PubliclyAccessible: false
@@ -145,19 +132,46 @@ Resources:
       AutoMinorVersionUpgrade: true
       DeletionProtection: true
 
+  # ---------- App keys, generated so no person ever handles them ----------
+  WebSecretKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Signs web session cookies
+      GenerateSecretString:
+        PasswordLength: 64
+        ExcludePunctuation: true
+
+  ApiSecretKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Signs API auth tokens
+      GenerateSecretString:
+        PasswordLength: 64
+        ExcludePunctuation: true
+
   # ---------- Functions ----------
   ApiFunction:
     Type: AWS::Serverless::Function
     Properties:
       Description: JSON API; invoked only by WebFunction (no public route)
       Handler: lambda_handlers.api_handler
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: rds-db:connect
+              Resource: !Sub "arn:${AWS::Partition}:rds-db:${AWS::Region}:${AWS::AccountId}:dbuser:${Database.DbiResourceId}/scheduler_app"
       VpcConfig:
         SecurityGroupIds: [!Ref ApiFunctionSecurityGroup]
         SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
       Environment:
         Variables:
-          DATABASE_URL: !Sub "postgresql+psycopg://${DbUsername}:${DbPassword}@${Database.Endpoint.Address}:${Database.Endpoint.Port}/scheduler?sslmode=require"
-          API_SECRET_KEY: !Ref ApiSecretKey
+          # No password: DB_IAM_AUTH makes each connection use an IAM token.
+          DATABASE_URL: !Sub "postgresql+psycopg://scheduler_app@${Database.Endpoint.Address}:${Database.Endpoint.Port}/scheduler?sslmode=require"
+          DB_IAM_AUTH: "1"
+          DB_MASTER_USER: !Ref DbMasterUsername   # for bootstrap-db only
+          # Resolved by CloudFormation at deploy time from the generated secret.
+          API_SECRET_KEY: !Sub "{{resolve:secretsmanager:${ApiSecretKeySecret}}}"
+          APP_KEYS_VERSION: !Ref AppKeysVersion
           AUTO_CREATE_TABLES: "0"       # schema comes from migrations
           DB_POOL_SIZE: "1"             # one request at a time per instance
           RATELIMIT_STORAGE_URI: appdb://
@@ -172,7 +186,8 @@ Resources:
       Handler: lambda_handlers.web_handler
       Environment:
         Variables:
-          SECRET_KEY: !Ref WebSecretKey
+          SECRET_KEY: !Sub "{{resolve:secretsmanager:${WebSecretKeySecret}}}"
+          APP_KEYS_VERSION: !Ref AppKeysVersion
           API_FUNCTION_NAME: !Ref ApiFunction
           SESSION_COOKIE_SECURE: "1"
       Policies:
@@ -290,3 +305,6 @@ Outputs:
   ApiFunctionName:
     Description: For admin commands, e.g. aws lambda invoke --function-name <this> ...
     Value: !Ref ApiFunction
+  DatabaseMasterSecretArn:
+    Description: Secrets Manager secret RDS keeps the master password in (for bootstrap-db)
+    Value: !GetAtt Database.MasterUserSecret.SecretArn

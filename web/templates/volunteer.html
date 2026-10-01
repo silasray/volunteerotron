@@ -27,6 +27,15 @@
     <button type="submit" id="submit">Submit</button>
   </form>
 
+  <dialog id="form-error-dialog" aria-labelledby="form-error-title">
+    <h2 id="form-error-title">That didn't work</h2>
+    <p id="form-error-message"></p>
+    <p class="hint">Your entries are still on the page; correct them and try again.</p>
+    <div class="dialog-actions">
+      <button type="button" id="form-error-ok">OK</button>
+    </div>
+  </dialog>
+
   <script id="form-data" type="application/json">{{ form|tojson }}</script>
 {% endblock %}
 {% block scripts %}

@@ -31,7 +31,7 @@
   if (picker) picker.addEventListener("change", () => picker.form.submit());
 
   document.querySelectorAll(".auto-submit").forEach((box) => {
-    box.addEventListener("change", () => box.form.submit());
+    box.addEventListener("change", () => box.form.requestSubmit()); // so it can be sent in the background
   });
 
   document.querySelectorAll(".delete-form").forEach((form) => {

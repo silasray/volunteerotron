@@ -9,11 +9,11 @@
 
   <section class="panel">
     <h2>Add Organization</h2>
-    <form method="post" action="{{ url_for('admin.create_organization') }}" class="stacked">
+    <form method="post" action="{{ url_for('admin.create_organization') }}" class="stacked" data-background-form>
       <input type="hidden" name="csrf" value="{{ csrf }}">
       {% if create_error %}<p class="error" role="alert">{{ create_error }}</p>{% endif %}
-      <label for="org-name">Name <span class="optional">(used in URLs)</span></label>
-      <input type="text" id="org-name" name="name" maxlength="255" required autocomplete="off"
+      <label for="org-name">Name <span class="optional">(used in URLs: letters, digits, - _ . ~)</span></label>
+      <input type="text" id="org-name" name="name" maxlength="255" required pattern="[A-Za-z0-9._~\-]+" title="Letters, digits, - _ . ~ only (no spaces)" autocapitalize="off" spellcheck="false" autocomplete="off"
              value="{{ create_form.name if create_form else '' }}">
       <label for="org-pretty-name">Pretty Name</label>
       <input type="text" id="org-pretty-name" name="pretty_name" maxlength="255" required autocomplete="off"
@@ -35,7 +35,7 @@
         <noscript><button type="submit">Select</button></noscript>
       </form>
 
-      <form method="post" action="{{ url_for('admin.rename_organization', org_id=selected.id) }}" class="stacked">
+      <form method="post" action="{{ url_for('admin.rename_organization', org_id=selected.id) }}" class="stacked" data-background-form>
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <input type="hidden" name="q" class="carry-filter" value="{{ q }}">
         {% if pretty_name_error %}<p class="error" role="alert">{{ pretty_name_error }}</p>{% endif %}
@@ -59,7 +59,7 @@
               {% if m %}<span class="badge">{{ 'admin' if m.is_admin else 'member' }}</span>{% endif %}
             </span>
             <form method="post" action="{{ url_for('admin.change_membership', org_id=selected.id, user_id=u.id) }}"
-                  class="member-actions">
+                  class="member-actions" data-background-form>
               <input type="hidden" name="csrf" value="{{ csrf }}">
               <input type="hidden" name="q" class="carry-filter" value="{{ q }}">
               <input type="hidden" name="user_name" value="{{ u.name }}">

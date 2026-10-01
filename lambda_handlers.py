@@ -4,6 +4,7 @@ web_handler  - behind API Gateway (HTTP API, payload v2); serves every page.
 api_handler  - invoked directly by the web function with
                {"internal_request": {...}}, never through API Gateway, so the
                API has no public endpoint. Also runs admin commands:
+                 {"command": "bootstrap-db", "master_password": ...}   (once, first)
                  {"command": "migrate"}
                  {"command": "create-user", "name": ..., "password": ..., "superuser": false}
 """
@@ -58,8 +59,14 @@ def _internal_request(req):
 
 
 def _command(event):
-    app = _app("api")
     command = event["command"]
+    if command == "bootstrap-db":
+        # Before the app's own role exists, so don't build the app (its
+        # connections would log in as that role).
+        from api.db_bootstrap import bootstrap
+
+        return {"ok": True, "output": bootstrap(event["master_password"])}
+    app = _app("api")
     if command == "migrate":
         from flask_migrate import upgrade
 
@@ -73,7 +80,9 @@ def _command(event):
         result = app.test_cli_runner().invoke(args=args)
         # The password never appears in the output.
         return {"ok": result.exit_code == 0, "output": result.output.strip()}
-    raise ValueError(f"unknown command {command!r}: expected 'migrate' or 'create-user'")
+    raise ValueError(
+        f"unknown command {command!r}: expected 'bootstrap-db', 'migrate' or 'create-user'"
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover - handy for a quick local check

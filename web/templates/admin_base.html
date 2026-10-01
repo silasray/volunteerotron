@@ -53,13 +53,13 @@
       {% if active_org.is_admin %}
       <dialog id="new-event-dialog" {% if new_event_error %}data-open-on-load{% endif %}
               aria-labelledby="new-event-title">
-        <form method="post" action="{{ url_for('admin.create_event') }}" class="dialog-form">
+        <form method="post" action="{{ url_for('admin.create_event') }}" class="dialog-form" data-background-form>
           <h2 id="new-event-title">New event in {{ active_org.pretty_name }}</h2>
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <input type="hidden" name="organization" value="{{ active_org.name }}">
           {% if new_event_error %}<p class="error" role="alert">{{ new_event_error }}</p>{% endif %}
-          <label for="new-event-name">Name <span class="optional">(used in URLs)</span></label>
-          <input type="text" id="new-event-name" name="name" maxlength="255" required
+          <label for="new-event-name">Name <span class="optional">(used in URLs: letters, digits, - _ . ~)</span></label>
+          <input type="text" id="new-event-name" name="name" maxlength="255" required pattern="[A-Za-z0-9._~\-]+" title="Letters, digits, - _ . ~ only (no spaces)" autocapitalize="off" spellcheck="false"
                  value="{{ new_event_form.name if new_event_form else '' }}">
           <label for="new-event-pretty-name">Pretty name</label>
           <input type="text" id="new-event-pretty-name" name="pretty_name" maxlength="255" required
@@ -83,7 +83,17 @@
     {% block admin_content %}{% endblock %}
   </div>
 </div>
+
+<dialog id="form-error-dialog" aria-labelledby="form-error-title">
+  <h2 id="form-error-title">That didn't work</h2>
+  <p id="form-error-message"></p>
+  <p class="hint">Nothing was changed. What you entered is still in the form; correct it and try again.</p>
+  <div class="dialog-actions">
+    <button type="button" id="form-error-ok" class="primary">OK</button>
+  </div>
+</dialog>
 {% endblock %}
 {% block scripts %}
+  <script src="{{ url_for('static', filename='admin_forms.js') }}"></script>
   <script src="{{ url_for('static', filename='admin.js') }}"></script>
 {% endblock %}

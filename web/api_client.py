@@ -52,12 +52,16 @@ def _http(method, url, headers, body):
 
 @lru_cache(maxsize=1)
 def _lambda_client():
+    import os
+
     import boto3  # provided by the Lambda runtime
     from botocore.config import Config
 
     # No automatic retries: a retried invoke could repeat a write.
     return boto3.client(
-        "lambda", config=Config(retries={"max_attempts": 1}, read_timeout=30, connect_timeout=5)
+        "lambda",
+        region_name=os.environ.get("AWS_REGION"),  # set by Lambda
+        config=Config(retries={"max_attempts": 1}, read_timeout=30, connect_timeout=5),
     )
 
 

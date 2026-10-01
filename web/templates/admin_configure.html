@@ -1,0 +1,270 @@
+{% extends "admin_base.html" %}
+{% set ev = config.event %}
+{% set base = url_for('admin.configure_event', org_name=config.organization.name, event_name=ev.name) %}
+{% block title %}Configure {{ ev.pretty_name }} – Admin{% endblock %}
+{% block admin_content %}
+  <h1>Configure {{ ev.pretty_name }}</h1>
+
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+    <p class="{{ 'error-notice' if category == 'error' else 'notice' }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</p>
+  {% endfor %}
+
+  {# ------------------------------------------------------------ windows #}
+  <section id="windows" class="config-section">
+    <h2>Volunteer Windows</h2>
+    {% if config.windows %}
+      <ul class="window-list">
+        {% for w in config.windows %}
+          <li class="window-row" data-start="{{ w.start }}" data-end="{{ w.end }}">
+            <span class="window-time">{{ w.start }} – {{ w.end }}</span>
+            {% if w.offer_count %}<span class="badge">{{ w.offer_count }} offer{{ 's' if w.offer_count != 1 }}</span>{% endif %}
+            <form method="post" action="{{ base }}/windows/{{ w.id }}/delete" class="needs-delete-dialog"
+                  data-kind="window" data-id="{{ w.id }}" data-linked="{{ w.offer_count }}">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <input type="hidden" name="mode" value="">
+              <input type="hidden" name="reassign_to" value="">
+              <button type="submit" class="danger">Delete</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="hint">No windows yet.</p>
+    {% endif %}
+
+    <form method="post" action="{{ base }}/windows" class="add-window converts-times" data-background-form>
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="when-field">
+        <label for="window-start">Start</label>
+        <div class="row">
+          <input type="text" id="window-start" class="when-text" data-iso-target="window-start-iso"
+                 placeholder="YYYY-MM-DD HH:MM" autocomplete="off" required>
+          <button type="button" class="pick-when" data-for="window-start" aria-label="Choose start date and time">📅</button>
+        </div>
+        <input type="hidden" name="start_iso" id="window-start-iso">
+      </div>
+      <div class="when-field">
+        <label for="window-end">End</label>
+        <div class="row">
+          <input type="text" id="window-end" class="when-text" data-iso-target="window-end-iso"
+                 placeholder="YYYY-MM-DD HH:MM" autocomplete="off" required>
+          <button type="button" class="pick-when" data-for="window-end" aria-label="Choose end date and time">📅</button>
+        </div>
+        <input type="hidden" name="end_iso" id="window-end-iso">
+      </div>
+      <button type="submit" class="add-button">Add Window</button>
+    </form>
+    <p class="hint">Times are in your browser's time zone.</p>
+  </section>
+
+  {# ------------------------------------------------------------ enrichments #}
+  <section id="enrichments" class="config-section">
+    <h2>Enrichments</h2>
+
+    {% for t in config.enrichment_types %}
+      {% set is_open = t.id in open_types %}
+      <div class="etype" id="type-{{ t.id }}" data-type-id="{{ t.id }}">
+        <div class="etype-header">
+          <button type="button" class="twisty" aria-expanded="{{ 'true' if is_open else 'false' }}"
+                  aria-controls="type-body-{{ t.id }}" aria-label="Show or hide {{ t.name }}">▸</button>
+          <h3>{{ t.name }}</h3>
+          <form method="post" action="{{ base }}/enrichment-types/{{ t.id }}/interaction" class="inline-form" data-background-form>
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="open" value="{{ t.id if is_open else '' }}" class="keep-open">
+            <select name="volunteer_interaction" aria-label="Volunteer interaction for {{ t.name }}">
+              {% for vi in config.volunteer_interactions %}
+                <option value="{{ vi }}" {% if vi == t.volunteer_interaction %}selected{% endif %}>{{ vi }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit">Update</button>
+          </form>
+          <form method="post" action="{{ base }}/enrichment-types/{{ t.id }}/delete" class="needs-delete-dialog"
+                data-kind="type" data-id="{{ t.id }}" data-linked="{{ t.link_count }}" data-label="{{ t.name }}">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="mode" value="">
+            <button type="submit" class="danger">Delete</button>
+          </form>
+          {# Shown while expanded: discards unsaved edits in this type and reloads it from the server. #}
+          <button type="button" class="reload-type" hidden
+                  title="Discard unsaved changes to {{ t.name }} and load what's saved now">Reload Details</button>
+        </div>
+
+        <div class="etype-body" id="type-body-{{ t.id }}" data-initially-open="{{ 'true' if is_open else 'false' }}">
+          <form method="post" action="{{ base }}/enrichment-types/{{ t.id }}/values" id="values-{{ t.id }}" class="converts-times">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+          </form>
+          <form method="post" action="{{ base }}/enrichment-types/{{ t.id }}/rows" id="add-row-{{ t.id }}" data-background-form>
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+          </form>
+          {% for e in t.enrichments %}
+            <form method="post" action="{{ base }}/enrichments/{{ e.id }}/delete" id="delete-row-{{ e.id }}"
+                  class="needs-delete-dialog" data-kind="row" data-id="{{ e.id }}" data-type-id="{{ t.id }}" data-linked="{{ e.link_count }}">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <input type="hidden" name="type_id" value="{{ t.id }}">
+              <input type="hidden" name="mode" value="">
+              <input type="hidden" name="reassign_to" value="">
+            </form>
+          {% endfor %}
+
+          <div class="table-wrap">
+            <table class="values-table">
+              <thead>
+                <tr>
+                  {% for f in t.fields %}
+                    <th scope="col" class="{{ 'hidden-field' if f.hidden }}">
+                      <span>{{ f.name }}</span>
+                      <span class="field-kind">{{ f.content_type }}</span>
+                      <form method="post" action="{{ base }}/fields/{{ f.id }}/hidden" class="inline-form" data-background-form>
+                        <input type="hidden" name="csrf" value="{{ csrf }}">
+                        <input type="hidden" name="type_id" value="{{ t.id }}">
+                        <input type="hidden" name="hidden" value="{{ '0' if f.hidden else '1' }}">
+                        <button type="submit" class="toggle" aria-pressed="{{ 'true' if f.hidden else 'false' }}"
+                                title="{{ 'Hidden from volunteers: click to show' if f.hidden else 'Shown to volunteers: click to hide' }}">
+                          {{ 'Hidden' if f.hidden else 'Shown' }}
+                        </button>
+                      </form>
+                      <form method="post" action="{{ base }}/fields/{{ f.id }}/delete" class="inline-form needs-delete-dialog"
+                            data-kind="field" data-id="{{ f.id }}" data-linked="{{ f.value_count }}" data-label="{{ f.name }}">
+                        <input type="hidden" name="csrf" value="{{ csrf }}">
+                        <input type="hidden" name="type_id" value="{{ t.id }}">
+                        <input type="hidden" name="mode" value="">
+                        <button type="submit" class="danger col-delete" aria-label="Delete column {{ f.name }}"
+                                title="Delete this column and its values">Delete</button>
+                      </form>
+                    </th>
+                  {% endfor %}
+                  <th scope="col" class="actions-col">
+                    <button type="button" class="open-add-field" data-type-id="{{ t.id }}" data-type-name="{{ t.name }}">Add Field</button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for e in t.enrichments %}
+                  <tr>
+                    {% for f in t.fields %}
+                      {% set v = e['values'].get(f.id) %}
+                      <td>
+                        {% if f.content_type == 'text' %}
+                          <input type="text" name="t|{{ e.id }}|{{ f.id }}" form="values-{{ t.id }}" maxlength="255"
+                                 value="{{ v.value if v else '' }}" aria-label="{{ f.name }}">
+                        {% else %}
+                          {% for part in ['start', 'end'] %}
+                            {% set iso_id = 'c-' ~ e.id ~ '-' ~ f.id ~ '-' ~ part %}
+                            <div class="row cal-part">
+                              <input type="text" id="{{ iso_id }}-text" class="when-text" data-iso-target="{{ iso_id }}"
+                                     data-initial-iso="{{ v[part] if v else '' }}" placeholder="{{ part }}"
+                                     autocomplete="off" aria-label="{{ f.name }} {{ part }}">
+                              <button type="button" class="pick-when" data-for="{{ iso_id }}-text"
+                                      aria-label="Choose {{ f.name }} {{ part }}">📅</button>
+                            </div>
+                            {# Pre-filled so a submit without the script leaves the value unchanged. #}
+                            <input type="hidden" id="{{ iso_id }}" name="c|{{ e.id }}|{{ f.id }}|{{ part }}"
+                                   form="values-{{ t.id }}" value="{{ v[part] if v else '' }}">
+                          {% endfor %}
+                        {% endif %}
+                      </td>
+                    {% endfor %}
+                    <td class="actions-col">
+                      <button type="submit" form="delete-row-{{ e.id }}" class="danger">Delete</button>
+                    </td>
+                  </tr>
+                {% else %}
+                  <tr><td colspan="{{ t.fields|length + 1 }}" class="hint">No rows yet.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% if not t.fields %}<p class="hint">Add a field to start describing this enrichment's options.</p>{% endif %}
+          <div class="row etype-actions">
+            <button type="submit" form="add-row-{{ t.id }}">Add Row</button>
+            <button type="submit" form="values-{{ t.id }}" class="primary" {% if not t.enrichments %}disabled{% endif %}>Update Values</button>
+          </div>
+        </div>
+      </div>
+    {% else %}
+      <p class="hint">No enrichments yet.</p>
+    {% endfor %}
+
+    <form method="post" action="{{ base }}/enrichment-types" class="add-type" data-background-form>
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div>
+        <label for="new-type-name">Name</label>
+        <input type="text" id="new-type-name" name="name" maxlength="255" required>
+      </div>
+      <div>
+        <label for="new-type-interaction">Volunteer Interaction</label>
+        <select id="new-type-interaction" name="volunteer_interaction">
+          {% for vi in config.volunteer_interactions %}<option value="{{ vi }}">{{ vi }}</option>{% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="add-button">Add New Enrichment</button>
+    </form>
+  </section>
+
+  {# ------------------------------------------------------------ dialogs #}
+  <dialog id="delete-dialog" aria-labelledby="delete-dialog-title">
+    <h2 id="delete-dialog-title">Delete?</h2>
+    <p id="delete-dialog-message"></p>
+    <div id="delete-dialog-reassign" class="stacked">
+      <label for="delete-dialog-target" id="delete-dialog-target-label">Move them to</label>
+      <select id="delete-dialog-target"></select>
+      <button type="button" id="delete-dialog-move">Move and delete</button>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" id="delete-dialog-cancel">Cancel</button>
+      <button type="button" id="delete-dialog-cascade" class="danger"></button>
+    </div>
+  </dialog>
+
+  <dialog id="add-field-dialog" aria-labelledby="add-field-title">
+    <form method="post" id="add-field-form" class="dialog-form" data-action-template="{{ base }}/enrichment-types/__TYPE__/fields" data-background-form>
+      <h2 id="add-field-title">Add field</h2>
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label for="add-field-name">Name</label>
+      <input type="text" id="add-field-name" name="name" maxlength="255" required>
+      <label for="add-field-kind">Content type</label>
+      <select id="add-field-kind" name="content_type">
+        {% for ct in config.content_types %}<option value="{{ ct }}">{{ ct }}</option>{% endfor %}
+      </select>
+      <div class="dialog-actions">
+        <button type="button" id="add-field-cancel">Cancel</button>
+        <button type="submit">Add Field</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="when-dialog" aria-labelledby="when-dialog-title">
+    <h2 id="when-dialog-title">Choose date and time</h2>
+    <div class="cal-nav">
+      <button type="button" id="cal-prev" aria-label="Previous month">‹</button>
+      <span id="cal-month" aria-live="polite"></span>
+      <button type="button" id="cal-next" aria-label="Next month">›</button>
+    </div>
+    <table class="calendar" role="grid" aria-labelledby="cal-month">
+      <thead><tr id="cal-weekdays"></tr></thead>
+      <tbody id="cal-days"></tbody>
+    </table>
+    <label for="cal-time">Time</label>
+    <input type="time" id="cal-time" step="60" value="09:00">
+    <div class="dialog-actions">
+      <button type="button" id="when-cancel">Cancel</button>
+      <button type="button" id="when-ok" class="primary">OK</button>
+    </div>
+  </dialog>
+
+  <dialog id="values-error-dialog" aria-labelledby="values-error-title">
+    <h2 id="values-error-title">Couldn't save the values</h2>
+    <p id="values-error-summary"></p>
+    <ul id="values-error-list"></ul>
+    <p class="hint" id="values-error-hint">Nothing was saved. Your changes are still on the page; fix the highlighted cells and press Update Values again.</p>
+    <div class="dialog-actions">
+      <button type="button" id="values-error-ok" class="primary">OK</button>
+    </div>
+  </dialog>
+
+  <script id="config-data" type="application/json">{{ config|tojson }}</script>
+{% endblock %}
+{% block scripts %}
+  {{ super() }}
+  <script src="{{ url_for('static', filename='admin_configure.js') }}"></script>
+{% endblock %}

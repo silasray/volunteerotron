@@ -1,0 +1,109 @@
+{% extends "admin_base.html" %}
+{% set ev = manage.event %}
+{% set action_base = url_for('admin.manage_event', org_name=manage.organization.name, event_name=ev.name) %}
+{% block title %}Manage {{ ev.pretty_name }} – Admin{% endblock %}
+{% block admin_content %}
+  <h1>Manage {{ ev.pretty_name }}</h1>
+
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+    <p class="{{ 'error-notice' if category == 'error' else 'notice' }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</p>
+  {% endfor %}
+
+  <div class="manage-layout">
+  <div class="manage-windows">
+  {% if not manage.windows %}
+    <p class="hint">This event has no volunteer windows yet.</p>
+  {% endif %}
+
+  {% for w in manage.windows %}
+    {% set counts = namespace(accepted=0, denied=0, pending=0) %}
+    {% for s in w.signups %}
+      {% if s.response == 'accepted' %}{% set counts.accepted = counts.accepted + 1 %}
+      {% elif s.response == 'denied' %}{% set counts.denied = counts.denied + 1 %}
+      {% else %}{% set counts.pending = counts.pending + 1 %}{% endif %}
+    {% endfor %}
+    <section class="manage-window" id="window-{{ w.id }}" data-window-id="{{ w.id }}">
+      <h2 class="window-heading" data-start="{{ w.start }}" data-end="{{ w.end }}">{{ w.start }} – {{ w.end }}</h2>
+      <p class="window-counts">
+        <span class="badge status-accepted">{{ counts.accepted }} accepted</span>
+        <span class="badge status-pending">{{ counts.pending }} pending</span>
+        <span class="badge status-denied">{{ counts.denied }} denied</span>
+      </p>
+
+      {% if w.signups %}
+        {# Filter controls are built by the script from the column descriptors. #}
+        <div class="window-controls"></div>
+        <ul class="signup-list">
+          {% for s in w.signups %}
+            <li class="signup status-{{ s.response or 'pending' }}" data-signup-id="{{ s.id }}"
+                data-response="{{ s.response or 'pending' }}" data-order="{{ loop.index0 }}"
+                data-name="{{ (s.volunteer.name or s.volunteer.email)|lower }}">
+              <script type="application/json" class="signup-values">{{ s['values']|tojson }}</script>
+              <div class="signup-who">
+                <strong>{{ s.volunteer.name or '(no name)' }}</strong>
+                <span class="signup-email">{{ s.volunteer.email }}</span>
+              </div>
+              <div class="signup-values-shown">
+                {% for c in manage.columns %}
+                  {% set v = s['values'].get(c.key) %}
+                  <span class="value-chip kind-{{ c.kind }}{% if c.kind == 'boolean' and v %} is-true{% endif %}">
+                    {{ c.label }}:
+                    {% if v is none %}–{% elif c.kind == 'boolean' %}{{ 'Yes' if v else 'No' }}{% else %}{{ v }}{% endif %}
+                  </span>
+                {% endfor %}
+              </div>
+              <span class="badge status-badge">{{ (s.response or 'pending')|capitalize }}</span>
+              <div class="signup-actions">
+                {% for value, label in [('accepted', 'Accept'), ('denied', 'Deny'), ('pending', 'Reset to pending')] %}
+                  {% if (s.response or 'pending') != value %}
+                    <form method="post" action="{{ action_base }}/signups/{{ s.id }}/response" class="inline-form" data-background-form>
+                      <input type="hidden" name="csrf" value="{{ csrf }}">
+                      <input type="hidden" name="window_id" value="{{ w.id }}">
+                      <input type="hidden" name="response" value="{{ value }}">
+                      <button type="submit" class="respond-{{ value }}">{{ label }}</button>
+                    </form>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+        <p class="hint no-match" hidden>No volunteers match these filters.</p>
+      {% else %}
+        <p class="hint">No volunteers have offered their time in this window yet.</p>
+      {% endif %}
+    </section>
+  {% endfor %}
+
+  {% if manage.windows %}
+    {# Each button carries its window's approved (accepted) emails; the script combines the selected ones. #}
+    <section class="email-lists" aria-labelledby="email-lists-heading">
+      <h2 id="email-lists-heading">Get Email Lists for Approved by Window</h2>
+      <div class="email-window-buttons">
+        {% for w in manage.windows %}
+          <button type="button" class="email-window" aria-pressed="false" data-window-id="{{ w.id }}"
+                  data-start="{{ w.start }}" data-end="{{ w.end }}"
+                  data-emails='{{ w.signups|selectattr("response", "equalto", "accepted")|map(attribute="volunteer.email")|list|tojson }}'>{{ w.start }} – {{ w.end }}</button>
+        {% endfor %}
+      </div>
+      <p class="email-list-output" id="email-list-output" aria-live="polite"></p>
+    </section>
+  {% endif %}
+  </div>
+
+  {# Built by the script: a None / To Top / To Bottom choice per yes/no column and per response value. #}
+  <aside class="manage-sort" aria-labelledby="manage-sort-heading">
+    <h2 id="manage-sort-heading">Sort</h2>
+    <div id="manage-sort-controls"></div>
+    <p class="hint" id="manage-sort-empty" hidden>No yes/no columns to sort by.</p>
+  </aside>
+  </div>
+
+  <script id="manage-columns" type="application/json">{{ manage.columns|tojson }}</script>
+  <script id="manage-responses" type="application/json">{{ manage.responses|tojson }}</script>
+  <script id="manage-event" type="application/json">{{ {'id': ev.id}|tojson }}</script>
+{% endblock %}
+{% block scripts %}
+  {{ super() }}
+  <script src="{{ url_for('static', filename='admin_manage.js') }}"></script>
+{% endblock %}

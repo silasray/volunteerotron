@@ -61,6 +61,11 @@ def create_app():
         }
 
     db.init_app(app)
+    if _flag("DB_IAM_AUTH", "0"):
+        from .db_auth import enable_iam_auth
+
+        with app.app_context():
+            enable_iam_auth(db.engine)
     Migrate(app, db, directory=MIGRATIONS_DIR)
     if app.config["AUTO_CREATE_TABLES"]:
         with app.app_context():
@@ -83,6 +88,10 @@ def create_app():
 
     app.register_blueprint(routes.bp, url_prefix="/api")
     app.register_blueprint(admin.bp, url_prefix="/api/admin")
+    from . import event_config
+    app.register_blueprint(event_config.bp, url_prefix="/api/admin/event-config")
+    from . import event_manage
+    app.register_blueprint(event_manage.bp, url_prefix="/api/admin/event-manage")
 
     app.cli.add_command(create_user)
 

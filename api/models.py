@@ -1,4 +1,5 @@
 import enum
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -63,13 +64,42 @@ class TimestampMixin:
         }
 
 
+# Organization and event names appear verbatim in URLs (/<org>/<event>/...),
+# so they're limited to characters that never need percent-encoding in a path
+# segment: RFC 3986 "unreserved". Pretty names are free text.
+URL_NAME_RE = re.compile(r"[A-Za-z0-9._~-]+")
+URL_NAME_RULE = "letters, digits, '-', '_', '.' and '~' only (no spaces)"
+
+
+def url_name_problem(name):
+    """Why a name can't be used in URLs, or None if it's fine."""
+    if not isinstance(name, str) or not URL_NAME_RE.fullmatch(name):
+        return f"name may contain {URL_NAME_RULE}"
+    if name in (".", ".."):
+        # Browsers resolve these as path navigation.
+        return "name can't be '.' or '..'"
+    if len(name) > 255:
+        return "name must be at most 255 characters"
+    return None
+
+
+def _validate_url_name(value):
+    if problem := url_name_problem(value):
+        raise ValueError(problem)
+    return value
+
+
 class Organization(db.Model):
     id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
-    name = db.Column(db.String(255), unique=True, nullable=False)
+    name = db.Column(db.String(255), unique=True, nullable=False)  # see url_name_problem
     pretty_name = db.Column(db.String(255), nullable=False)
 
     events = db.relationship("Event", back_populates="organization")
     memberships = db.relationship("UserOrganization", back_populates="organization")
+
+    @validates("name")
+    def _check_name(self, key, value):
+        return _validate_url_name(value)
 
     def to_dict(self):
         return {"id": str(self.id), "name": self.name, "pretty_name": self.pretty_name}
@@ -150,7 +180,7 @@ class UserOrganization(db.Model):
 
 class Event(db.Model):
     id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
-    name = db.Column(db.String(255), nullable=False)
+    name = db.Column(db.String(255), nullable=False)  # see url_name_problem
     pretty_name = db.Column(db.String(255), nullable=False)
     organization_id = db.Column(
         db.Uuid, db.ForeignKey("organization.id"), nullable=False, index=True
@@ -164,6 +194,10 @@ class Event(db.Model):
     windows = db.relationship("VolunteerWindow", back_populates="event")
     offers = db.relationship("VolunteerOffer", back_populates="event")
     enrichment_types = db.relationship("EnrichmentType", back_populates="event")
+
+    @validates("name")
+    def _check_name(self, key, value):
+        return _validate_url_name(value)
 
     def to_dict(self):
         return {
@@ -304,7 +338,7 @@ class VolunteerInteraction(enum.Enum):
     SELECT = "select"
 
 
-class FragmentType(enum.Enum):
+class ContentType(enum.Enum):
     TEXT = "text"
     CALENDAR = "calendar"
 
@@ -337,7 +371,7 @@ class EnrichmentFragmentType(db.Model):
     enrichment_type_id = db.Column(
         db.Uuid, db.ForeignKey("enrichment_type.id"), nullable=False, index=True
     )
-    fragment_type = db.Column(_enum_column(FragmentType, "fragment_type"), nullable=False)
+    content_type = db.Column(_enum_column(ContentType, "content_type"), nullable=False)
 
     enrichment_type = db.relationship("EnrichmentType", back_populates="fragment_types")
 
@@ -347,7 +381,7 @@ class EnrichmentFragmentType(db.Model):
             "name": self.name,
             "hidden": self.hidden,
             "enrichment_type_id": str(self.enrichment_type_id),
-            "fragment_type": self.fragment_type.value,
+            "content_type": self.content_type.value,
         }
 
 
@@ -367,7 +401,7 @@ class Enrichment(db.Model):
 
 
 class TextEnrichment(db.Model):
-    fragment_kind = FragmentType.TEXT
+    CONTENT_TYPE = ContentType.TEXT  # the field content type this class stores
 
     id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
     enrichment_id = db.Column(
@@ -391,7 +425,7 @@ class TextEnrichment(db.Model):
 
 
 class CalendarEnrichment(db.Model):
-    fragment_kind = FragmentType.CALENDAR
+    CONTENT_TYPE = ContentType.CALENDAR  # the field content type this class stores
 
     id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
     enrichment_id = db.Column(
@@ -473,10 +507,10 @@ def _check_fragment(session, fragment):
     enrichment = session.get(Enrichment, fragment.enrichment_id)
     if fragment_type is None or enrichment is None:
         raise ValueError(f"{label} references a missing enrichment or fragment type")
-    if fragment_type.fragment_type is not fragment.fragment_kind:
+    if fragment_type.content_type is not fragment.CONTENT_TYPE:
         raise ValueError(
-            f"{label} uses fragment type {fragment_type.id} of kind "
-            f"{fragment_type.fragment_type.value!r}, expected {fragment.fragment_kind.value!r}"
+            f"{label} uses fragment type {fragment_type.id} with content type "
+            f"{fragment_type.content_type.value!r}, expected {fragment.CONTENT_TYPE.value!r}"
         )
     if fragment_type.enrichment_type_id != enrichment.enrichment_type_id:
         raise ValueError(
