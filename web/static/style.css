@@ -1,0 +1,129 @@
+body {
+  font-family: system-ui, sans-serif;
+  max-width: 48rem;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+.organization {
+  margin: 0;
+  color: #555;
+  font-weight: 600;
+}
+
+.organization + h1 {
+  margin-top: 0.25rem;
+}
+
+section {
+  margin-bottom: 1.5rem;
+}
+
+.row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.row input {
+  flex: 1;
+  min-width: 0;
+}
+
+#name {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.optional {
+  color: #555;
+  font-size: 0.875rem;
+}
+
+.row + label {
+  display: block;
+  margin-top: 0.75rem;
+}
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.choice {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+
+fieldset {
+  margin-bottom: 1rem;
+}
+
+.filter {
+  display: block;
+  width: 100%;
+  max-width: 20rem;
+  box-sizing: border-box;
+  margin-bottom: 0.5rem;
+}
+
+.hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+  color: #555;
+}
+
+/* Selected, but doesn't match the current filter. */
+.filtered-out {
+  color: #888;
+}
+
+label.filtered-out input {
+  opacity: 0.6;
+}
+
+.login {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 20rem;
+}
+
+.login button {
+  align-self: flex-start;
+  margin-top: 0.75rem;
+}
+
+.login label:not(:first-of-type) {
+  margin-top: 0.5rem;
+}
+
+.error {
+  color: #b00020;
+}
+
+.logout {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+h3 {
+  margin: 1rem 0 0.5rem;
+  font-size: 1rem;
+}
+
+#status {
+  min-height: 1.5em;
+}
+
+#status.error {
+  color: #b00020;
+}
