@@ -1,3 +1,7 @@
 Flask>=3.0
 Flask-SQLAlchemy>=3.1
+Flask-Migrate>=4.0
 requests>=2.32
+Flask-Limiter>=3.5
+psycopg[binary]>=3.2
+apig-wsgi>=2.18

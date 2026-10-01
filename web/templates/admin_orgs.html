@@ -1,0 +1,90 @@
+{% extends "admin_base.html" %}
+{% block title %}Manage organizations – Admin{% endblock %}
+{% block admin_content %}
+  <h1>Manage organizations</h1>
+
+  {% for message in get_flashed_messages() %}
+    <p class="notice" role="status">{{ message }}</p>
+  {% endfor %}
+
+  <section class="panel">
+    <h2>Add Organization</h2>
+    <form method="post" action="{{ url_for('admin.create_organization') }}" class="stacked">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      {% if create_error %}<p class="error" role="alert">{{ create_error }}</p>{% endif %}
+      <label for="org-name">Name <span class="optional">(used in URLs)</span></label>
+      <input type="text" id="org-name" name="name" maxlength="255" required autocomplete="off"
+             value="{{ create_form.name if create_form else '' }}">
+      <label for="org-pretty-name">Pretty Name</label>
+      <input type="text" id="org-pretty-name" name="pretty_name" maxlength="255" required autocomplete="off"
+             value="{{ create_form.pretty_name if create_form else '' }}">
+      <button type="submit" class="primary">Submit</button>
+    </form>
+  </section>
+
+  <section class="panel wide">
+    <h2>Manage Organizations</h2>
+    {% if selected %}
+      <form method="get" action="{{ url_for('admin.organizations') }}" class="user-picker">
+        <label for="manage-org">Organization</label>
+        <select id="manage-org" name="manage">
+          {% for o in managed_orgs %}
+            <option value="{{ o.id }}" {% if o.id == selected.id %}selected{% endif %}>{{ o.name }}</option>
+          {% endfor %}
+        </select>
+        <noscript><button type="submit">Select</button></noscript>
+      </form>
+
+      <form method="post" action="{{ url_for('admin.rename_organization', org_id=selected.id) }}" class="stacked">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="q" class="carry-filter" value="{{ q }}">
+        {% if pretty_name_error %}<p class="error" role="alert">{{ pretty_name_error }}</p>{% endif %}
+        <label for="manage-pretty-name">Pretty Name</label>
+        <div class="row">
+          <input type="text" id="manage-pretty-name" name="pretty_name" maxlength="255" required
+                 value="{{ pretty_name_value if pretty_name_value is defined else selected.pretty_name }}">
+          <button type="submit">Change Pretty Name</button>
+        </div>
+      </form>
+
+      <h3>Users</h3>
+      <input type="search" id="user-filter" class="filter" placeholder="Filter users"
+             aria-label="Filter users" value="{{ q }}">
+      <ul class="member-list">
+        {% for u in users %}
+          {% set m = u.membership %}
+          <li id="user-{{ u.id }}" data-name="{{ u.name|lower }}">
+            <span class="member-name">
+              {{ u.name }}
+              {% if m %}<span class="badge">{{ 'admin' if m.is_admin else 'member' }}</span>{% endif %}
+            </span>
+            <form method="post" action="{{ url_for('admin.change_membership', org_id=selected.id, user_id=u.id) }}"
+                  class="member-actions">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <input type="hidden" name="q" class="carry-filter" value="{{ q }}">
+              <input type="hidden" name="user_name" value="{{ u.name }}">
+              <input type="hidden" name="org_name" value="{{ selected.pretty_name }}">
+              {% if not m %}
+                <button type="submit" name="action" value="add">Add</button>
+              {% else %}
+                <button type="submit" name="action" value="remove">Remove</button>
+                {% if m.is_admin %}
+                  <button type="submit" name="action" value="remove-admin">Remove Admin</button>
+                {% else %}
+                  <button type="submit" name="action" value="make-admin">Make Admin</button>
+                {% endif %}
+              {% endif %}
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+      <p class="hint" id="no-user-match" hidden>No users match.</p>
+    {% else %}
+      <p class="hint">No organizations yet.</p>
+    {% endif %}
+  </section>
+{% endblock %}
+{% block scripts %}
+  {{ super() }}
+  <script src="{{ url_for('static', filename='admin_orgs.js') }}"></script>
+{% endblock %}

@@ -89,6 +89,22 @@ class User(db.Model):
     memberships = db.relationship("UserOrganization", back_populates="user")
 
     PASSWORD_HASH_METHOD = "scrypt"
+    PASSWORD_MIN_LENGTH = 12
+    # scrypt work grows with input size, so cap it to keep requests cheap.
+    PASSWORD_MAX_LENGTH = 1024
+
+    @classmethod
+    def password_problem(cls, plain):
+        """Why a new password is unacceptable, or None if it's fine.
+
+        Applied wherever passwords are set (the API and the create-user command).
+        Not stripped: spaces count.
+        """
+        if not isinstance(plain, str) or len(plain) < cls.PASSWORD_MIN_LENGTH:
+            return f"password must be at least {cls.PASSWORD_MIN_LENGTH} characters"
+        if len(plain) > cls.PASSWORD_MAX_LENGTH:
+            return f"password must be at most {cls.PASSWORD_MAX_LENGTH} characters"
+        return None
 
     @validates("password")
     def _require_hash(self, key, value):
@@ -431,6 +447,20 @@ class VolunteerOfferEnrichment(TimestampMixin, db.Model):
             "enrichment_id": str(self.enrichment_id),
             **self.timestamps_dict(),
         }
+
+
+class RateLimit(db.Model):
+    """Shared rate-limit counters (see api/ratelimit_storage.py).
+
+    Kept in the database so every Lambda instance sees the same counts.
+    """
+
+    # sha256 of the limiter's key, so arbitrarily long keys (e.g. a huge
+    # submitted login name) can't overflow the primary key index.
+    key_hash = db.Column(db.String(64), primary_key=True)
+    hits = db.Column(db.Integer, nullable=False)
+    # Unix time when the current window ends.
+    expires_at = db.Column(db.Float, nullable=False, index=True)
 
 
 _FRAGMENT_CLASSES = (TextEnrichment, CalendarEnrichment)

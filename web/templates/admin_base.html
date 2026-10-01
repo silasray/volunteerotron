@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block content %}
+<div class="admin-layout">
+  <nav class="admin-nav" aria-label="Admin">
+    {% if me.user.is_superuser %}
+      <section class="nav-section">
+        <ul class="nav-links">
+          <li><a href="{{ url_for('admin.users') }}">manage users</a></li>
+          <li><a href="{{ url_for('admin.organizations') }}">manage orgs</a></li>
+        </ul>
+      </section>
+      {% if orgs %}<hr class="nav-divider">{% endif %}
+    {% endif %}
+
+    {% if orgs %}
+      <section class="nav-section">
+        <h2>Organizations</h2>
+        <form method="get" action="{{ request.path }}" class="org-picker">
+          <select name="org" aria-label="Organization">
+            {% for org in orgs %}
+              <option value="{{ org.name }}" {% if org.name == active_org.name %}selected{% endif %}>{{ org.pretty_name }}</option>
+            {% endfor %}
+          </select>
+          <noscript><button type="submit">Go</button></noscript>
+        </form>
+      </section>
+
+      <section class="nav-section">
+        <h2>Events</h2>
+        {% if active_org.is_admin %}
+          <button type="button" id="new-event-open">New Event</button>
+        {% endif %}
+        {% if active_org.events %}
+          <ul class="event-list">
+            {% for event in active_org.events %}
+              <li>
+                {{ event.pretty_name }}
+                <ul class="nav-links indented">
+                  <li><a href="{{ url_for('admin.manage_event', org_name=active_org.name, event_name=event.name) }}">manage</a></li>
+                  {% if active_org.is_admin %}
+                    <li><a href="{{ url_for('admin.configure_event', org_name=active_org.name, event_name=event.name) }}">configure</a></li>
+                  {% endif %}
+                </ul>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="hint">No events yet.</p>
+        {% endif %}
+      </section>
+
+      {% if active_org.is_admin %}
+      <dialog id="new-event-dialog" {% if new_event_error %}data-open-on-load{% endif %}
+              aria-labelledby="new-event-title">
+        <form method="post" action="{{ url_for('admin.create_event') }}" class="dialog-form">
+          <h2 id="new-event-title">New event in {{ active_org.pretty_name }}</h2>
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="organization" value="{{ active_org.name }}">
+          {% if new_event_error %}<p class="error" role="alert">{{ new_event_error }}</p>{% endif %}
+          <label for="new-event-name">Name <span class="optional">(used in URLs)</span></label>
+          <input type="text" id="new-event-name" name="name" maxlength="255" required
+                 value="{{ new_event_form.name if new_event_form else '' }}">
+          <label for="new-event-pretty-name">Pretty name</label>
+          <input type="text" id="new-event-pretty-name" name="pretty_name" maxlength="255" required
+                 value="{{ new_event_form.pretty_name if new_event_form else '' }}">
+          <div class="dialog-actions">
+            <button type="button" id="new-event-cancel">Cancel</button>
+            <button type="submit">Create</button>
+          </div>
+        </form>
+      </dialog>
+      {% endif %}
+    {% endif %}
+  </nav>
+
+  <div class="admin-main">
+    <form method="post" action="{{ url_for('admin.logout') }}" class="logout">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <span>Signed in as {{ me.user.name }}</span>
+      <button type="submit">Sign out</button>
+    </form>
+    {% block admin_content %}{% endblock %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='admin.js') }}"></script>
+{% endblock %}

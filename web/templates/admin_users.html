@@ -1,0 +1,84 @@
+{% extends "admin_base.html" %}
+{% block title %}Manage users – Admin{% endblock %}
+{% block admin_content %}
+  <h1>Manage users</h1>
+
+  {% for message in get_flashed_messages() %}
+    <p class="notice" role="status">{{ message }}</p>
+  {% endfor %}
+
+  <section class="panel">
+    <h2>Create New</h2>
+    <form method="post" action="{{ url_for('admin.create_user') }}" class="stacked">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      {% if create_error %}<p class="error" role="alert">{{ create_error }}</p>{% endif %}
+      <label for="create-name">Name</label>
+      <input type="text" id="create-name" name="name" maxlength="255" required autocomplete="off"
+             value="{{ create_form.name if create_form else '' }}">
+      <label for="create-password">Password</label>
+      {# Visible on purpose, so a generated password can be read and passed on. #}
+      <input type="text" id="create-password" name="password" required minlength="12"
+             autocomplete="off" spellcheck="false" autocapitalize="off" class="password-input"
+             value="{{ create_form.password if create_form else '' }}">
+      <button type="button" class="generate-password" data-target="create-password">Generate password</button>
+      <button type="submit" class="primary">Create user</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Manage</h2>
+    {% if selected %}
+      <form method="get" action="{{ url_for('admin.users') }}" class="user-picker">
+        <label for="manage-user">User</label>
+        <select id="manage-user" name="user">
+          {% for u in users %}
+            <option value="{{ u.id }}" {% if u.id == selected.id %}selected{% endif %}>{{ u.name }}{% if u.is_superuser %} (super user){% endif %}</option>
+          {% endfor %}
+        </select>
+        <noscript><button type="submit">Select</button></noscript>
+      </form>
+
+      {% set is_self = selected.id == me.user.id %}
+
+      <form method="post" action="{{ url_for('admin.change_password', user_id=selected.id) }}" class="stacked">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        {% if password_error %}<p class="error" role="alert">{{ password_error }}</p>{% endif %}
+        <label for="manage-password">Password</label>
+        <div class="row">
+          <input type="text" id="manage-password" name="password" required minlength="12"
+                 autocomplete="off" spellcheck="false" autocapitalize="off" class="password-input"
+                 value="{{ manage_password or '' }}">
+          <button type="submit">Change Password</button>
+        </div>
+        <button type="button" class="generate-password" data-target="manage-password">Generate password</button>
+      </form>
+
+      <form method="post" action="{{ url_for('admin.set_superuser', user_id=selected.id) }}" class="toggle-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        {% if superuser_error %}<p class="error" role="alert">{{ superuser_error }}</p>{% endif %}
+        <label class="choice">
+          <input type="checkbox" name="is_superuser" class="auto-submit"
+                 {% if selected.is_superuser %}checked{% endif %} {% if is_self %}disabled{% endif %}>
+          Super User
+        </label>
+        {% if is_self %}<p class="hint">You can't change your own super user status.</p>{% endif %}
+        <noscript>{% if not is_self %}<button type="submit">Save</button>{% endif %}</noscript>
+      </form>
+
+      <form method="post" action="{{ url_for('admin.delete_user', user_id=selected.id) }}"
+            class="delete-form" data-confirm="Delete user {{ selected.name }}? This can't be undone.">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="name" value="{{ selected.name }}">
+        {% if delete_error %}<p class="error" role="alert">{{ delete_error }}</p>{% endif %}
+        <button type="submit" class="danger" {% if is_self %}disabled{% endif %}>Delete</button>
+        {% if is_self %}<p class="hint">You can't delete yourself.</p>{% endif %}
+      </form>
+    {% else %}
+      <p class="hint">No users.</p>
+    {% endif %}
+  </section>
+{% endblock %}
+{% block scripts %}
+  {{ super() }}
+  <script src="{{ url_for('static', filename='admin_users.js') }}"></script>
+{% endblock %}

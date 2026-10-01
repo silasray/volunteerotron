@@ -2,11 +2,15 @@ import re
 import secrets
 import uuid
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
+from flask_limiter import Limiter, RateLimitExceeded
+from flask_limiter.util import get_remote_address
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from .auth import issue_token
+from .errors import ApiError
 from .models import (
     Event,
     Organization,
@@ -21,18 +25,25 @@ from .models import (
 
 bp = Blueprint("api", __name__)
 
+
+def client_ip():
+    """The browser's IP: from the web tier's header where that's trusted
+    (TRUSTED_CLIENT_IP_HEADER), otherwise the connecting address."""
+    header = current_app.config["TRUSTED_CLIENT_IP_HEADER"]
+    if header and (forwarded := request.headers.get(header)):
+        return forwarded
+    return get_remote_address()
+
+
+# Initialised in create_app. Only routes with an explicit @limiter.limit are limited.
+limiter = Limiter(key_func=client_ip)
+
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
-class ApiError(Exception):
-    def __init__(self, message, status=400):
-        super().__init__(message)
-        self.status = status
-
-
-@bp.errorhandler(ApiError)
-def handle_api_error(err):
-    return jsonify(error=str(err)), err.status
+@bp.errorhandler(RateLimitExceeded)
+def handle_rate_limited(err):
+    return jsonify(error="too many attempts; try again later"), 429
 
 
 @bp.get("/health")
@@ -45,12 +56,29 @@ def health():
 _DUMMY_HASH = generate_password_hash(secrets.token_urlsafe(), method=User.PASSWORD_HASH_METHOD)
 
 
+def _login_name_key():
+    data = request.get_json(silent=True)
+    name = data.get("name") if isinstance(data, dict) else None
+    return "login-name:" + (name.strip().lower() if isinstance(name, str) else "")
+
+
+# Two limits. Per account name, counting only failed attempts, so a user who
+# signs in successfully is never slowed down: protects one account from
+# guessing spread across many IPs. Per client IP, counting every attempt:
+# stops one client trying many names.
 @bp.post("/auth/login")
+@limiter.limit(
+    lambda: current_app.config["LOGIN_RATE_LIMIT"],
+    key_func=_login_name_key,
+    deduct_when=lambda response: response.status_code == 401,
+)
+@limiter.limit(lambda: current_app.config["LOGIN_IP_RATE_LIMIT"], key_func=client_ip)
 def login():
     """Verify credentials. Body: {"name": ..., "password": ...}.
 
-    Returns the user (never the hash) on success. Unknown name and wrong
-    password get the same 401 so the response doesn't reveal which names exist.
+    Returns the user (never the hash) and a bearer token for authenticated
+    calls on success. Unknown name and wrong password get the same 401 so the
+    response doesn't reveal which names exist.
     """
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
@@ -65,7 +93,7 @@ def login():
         raise ApiError("invalid name or password", 401)
     if not user.check_password(password):
         raise ApiError("invalid name or password", 401)
-    return jsonify(user=user.to_dict())
+    return jsonify(user=user.to_dict(), token=issue_token(user))
 
 
 def _get_event(organization_name, event_name):

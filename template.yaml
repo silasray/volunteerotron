@@ -1,0 +1,292 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >-
+  Volunteer Scheduler. Web Lambda behind an API Gateway HTTP API; API Lambda in
+  a private VPC next to RDS Postgres, invoked only by the web Lambda. No NAT
+  gateway: nothing in the VPC needs internet access.
+
+Metadata:
+  cfn-lint:
+    config:
+      ignore_checks:
+        # Secrets come in as NoEcho parameters rather than Secrets Manager:
+        # reaching Secrets Manager from inside the VPC needs a VPC endpoint
+        # (~$7/month), more than the rest of the stack costs at low traffic.
+        - W1011
+
+Parameters:
+  WebSecretKey:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: Signs web session cookies. Long random string.
+  ApiSecretKey:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: Signs API auth tokens. Long random string, different from WebSecretKey.
+  DbUsername:
+    Type: String
+    Default: scheduler
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9_]*"
+  DbPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    MaxLength: 64
+    # RDS rejects / @ " and spaces; letters and digits also keep the URL simple.
+    AllowedPattern: "[A-Za-z0-9]+"
+    Description: RDS master password (16-64 letters/digits).
+  DomainName:
+    Type: String
+    Default: ""
+    Description: >-
+      Optional custom domain, e.g. volunteerotron.silas.nyc. The stack creates its
+      own Route 53 hosted zone for exactly this name and never writes to the
+      parent zone; you delegate to it with one NS record (see README).
+      Leave empty to use the execute-api URL only.
+  DelegationComplete:
+    Type: String
+    Default: "false"
+    AllowedValues: ["false", "true"]
+    Description: >-
+      Set to true (second deploy) once the NS record in the parent zone points at
+      this stack's SubdomainNameServers. Until then only the hosted zone exists,
+      because the certificate can't be validated before delegation works.
+
+Conditions:
+  HasDomain: !Not [!Equals [!Ref DomainName, ""]]
+  DomainLive: !And
+    - !Condition HasDomain
+    - !Equals [!Ref DelegationComplete, "true"]
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Architectures: [arm64]   # must match scripts/build_lambda.py
+    CodeUri: .build/lambda   # built by: python scripts/build_lambda.py
+    MemorySize: 512          # scrypt password checks need ~32 MB and benefit from CPU
+    Timeout: 20
+
+Resources:
+  # ---------- Network: private only, no internet gateway or NAT ----------
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.42.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{Key: Name, Value: !Sub "${AWS::StackName}-vpc"}]
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.42.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags: [{Key: Name, Value: !Sub "${AWS::StackName}-private-a"}]
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.42.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags: [{Key: Name, Value: !Sub "${AWS::StackName}-private-b"}]
+
+  ApiFunctionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: API Lambda; may only reach Postgres inside the VPC
+      VpcId: !Ref Vpc
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 10.42.0.0/16
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS Postgres; reachable only from the API Lambda
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref ApiFunctionSecurityGroup
+
+  # ---------- Database ----------
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private subnets for the scheduler database
+      SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      Engine: postgres
+      EngineVersion: "18"         # major version; minor upgrades are automatic
+      DBInstanceClass: db.t4g.micro   # free tier for 12 months on new accounts
+      AllocatedStorage: "20"
+      StorageType: gp2
+      StorageEncrypted: true
+      DBName: scheduler
+      MasterUsername: !Ref DbUsername
+      MasterUserPassword: !Ref DbPassword
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      VPCSecurityGroups: [!Ref DatabaseSecurityGroup]
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: 7
+      AutoMinorVersionUpgrade: true
+      DeletionProtection: true
+
+  # ---------- Functions ----------
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: JSON API; invoked only by WebFunction (no public route)
+      Handler: lambda_handlers.api_handler
+      VpcConfig:
+        SecurityGroupIds: [!Ref ApiFunctionSecurityGroup]
+        SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+      Environment:
+        Variables:
+          DATABASE_URL: !Sub "postgresql+psycopg://${DbUsername}:${DbPassword}@${Database.Endpoint.Address}:${Database.Endpoint.Port}/scheduler?sslmode=require"
+          API_SECRET_KEY: !Ref ApiSecretKey
+          AUTO_CREATE_TABLES: "0"       # schema comes from migrations
+          DB_POOL_SIZE: "1"             # one request at a time per instance
+          RATELIMIT_STORAGE_URI: appdb://
+          # Safe here: only WebFunction can invoke this function, so clients
+          # can't forge the header.
+          TRUSTED_CLIENT_IP_HEADER: X-Client-IP
+
+  WebFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Pages; calls ApiFunction by Lambda invoke
+      Handler: lambda_handlers.web_handler
+      Environment:
+        Variables:
+          SECRET_KEY: !Ref WebSecretKey
+          API_FUNCTION_NAME: !Ref ApiFunction
+          SESSION_COOKIE_SECURE: "1"
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ApiFunction
+      Events:
+        Root:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /
+            Method: ANY
+        Everything:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+
+  # ---------- HTTP API (cheaper than REST API) ----------
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      # Caps request rate (and so cost) if something hammers the site.
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 50
+        ThrottlingRateLimit: 20
+
+  # ---------- Custom domain, in its own delegated hosted zone ----------
+  SubdomainZone:
+    Type: AWS::Route53::HostedZone
+    Condition: HasDomain
+    # Kept if the stack is deleted, so a still-present NS record in the parent
+    # zone never points at nameservers nobody controls (subdomain takeover).
+    # Remove the parent NS record first, then delete this zone by hand.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !Ref DomainName
+      HostedZoneConfig:
+        Comment: !Sub "Delegated from the parent zone; managed by stack ${AWS::StackName}"
+
+  # Lets Amazon issue certificates for this name whatever CAA policy the
+  # parent domain has (a CAA record here takes precedence for this name only).
+  SubdomainCaa:
+    Type: AWS::Route53::RecordSet
+    Condition: HasDomain
+    Properties:
+      HostedZoneId: !Ref SubdomainZone
+      Name: !Ref DomainName
+      Type: CAA
+      TTL: "3600"
+      ResourceRecords: ['0 issue "amazon.com"']
+
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Condition: DomainLive
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      # CloudFormation adds the validation CNAME to SubdomainZone and waits for
+      # ACM to issue the certificate (usually a few minutes once delegated).
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref SubdomainZone
+
+  CustomDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Condition: DomainLive
+    Properties:
+      DomainName: !Ref DomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref Certificate
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  CustomDomainMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Condition: DomainLive
+    DependsOn: HttpApiApiGatewayDefaultStage   # created by SAM for HttpApi
+    Properties:
+      DomainName: !Ref CustomDomain
+      ApiId: !Ref HttpApi
+      Stage: $default
+
+  CustomDomainRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: DomainLive
+    Properties:
+      HostedZoneId: !Ref SubdomainZone
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CustomDomain.RegionalDomainName
+        HostedZoneId: !GetAtt CustomDomain.RegionalHostedZoneId
+
+Outputs:
+  SiteUrl:
+    Description: Site URL
+    Value: !If
+      - DomainLive
+      - !Sub "https://${DomainName}/"
+      - !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/"
+  ExecuteApiUrl:
+    Description: The API Gateway default URL (always works)
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/"
+  SubdomainNameServers:
+    Condition: HasDomain
+    Description: Values for the NS record to add in the parent zone (one per line there)
+    Value: !Join [", ", !GetAtt SubdomainZone.NameServers]
+  SubdomainZoneId:
+    Condition: HasDomain
+    Description: The stack's hosted zone for DomainName
+    Value: !Ref SubdomainZone
+  ApiFunctionName:
+    Description: For admin commands, e.g. aws lambda invoke --function-name <this> ...
+    Value: !Ref ApiFunction
