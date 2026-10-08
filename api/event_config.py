@@ -476,15 +476,16 @@ def _set_text(enrichment, field, value):
 
 def _set_calendar(enrichment, field, value):
     existing = [f for f in enrichment.calendar_fragments if f.enrichment_fragment_type_id == field.id]
-    empty = value is None or (
-        isinstance(value, dict) and not (value.get("start") or "").strip() and not (value.get("end") or "").strip()
-    )
-    if empty:
+    if value is not None and not isinstance(value, dict):
+        raise ApiError("needs both a start and an end")
+    parts = [] if value is None else [value.get("start"), value.get("end")]
+    for part in parts:
+        if part is not None and not isinstance(part, str):
+            raise ApiError("start and end must be text")
+    if not any((part or "").strip() for part in parts):
         for frag in existing:
             db.session.delete(frag)
         return
-    if not isinstance(value, dict):
-        raise ApiError("needs both a start and an end")
     start, end = _range(value.get("start"), value.get("end"))
     if existing:
         existing[0].start, existing[0].end = start, end
@@ -518,6 +519,9 @@ def delete_enrichment(org, event_name, enrichment_id):
                 moved += 1
             else:
                 db.session.delete(link)
+                # Moved links leave the collection through the backref; this one
+                # must too, or _delete_enrichment_rows deletes it a second time.
+                enrichment.offer_enrichments.remove(link)
         db.session.flush()
     _delete_enrichment_rows(enrichment)
     db.session.commit()
