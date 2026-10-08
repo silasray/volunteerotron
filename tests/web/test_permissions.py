@@ -15,6 +15,7 @@ automatically and must be given an access level in ACCESS.
 import pytest
 import requests
 from flask import url_for
+from werkzeug.exceptions import NotFound
 
 from web import api_client
 from web.api_client import segment
@@ -317,11 +318,7 @@ def test_volunteer_relay_forwards_real_client_ip(web, sent_headers):
 # ---------------------------------------------------------------- ids in API paths
 
 
-@pytest.mark.parametrize("value", [
-    pytest.param(".", marks=pytest.mark.xfail(strict=True, reason="segment() doesn't escape dot segments")),
-    pytest.param("..", marks=pytest.mark.xfail(strict=True, reason="segment() doesn't escape dot segments")),
-    "a/b", "a?b", "a#b", "%2e%2e", "a b",
-])
+@pytest.mark.parametrize("value", ["a/b", "a?b", "a#b", "%2e%2e", "%2E%2E", "a b", "...", ".x"])
 def test_segment_stays_one_path_segment(value):
     """A value from the URL must land in the API path as exactly one segment,
     after requests normalizes the URL, so it can't redirect the call elsewhere."""
@@ -329,4 +326,21 @@ def test_segment_stays_one_path_segment(value):
     path = requests.Request("POST", url).prepare().path_url.split("?")[0].split("#")[0]
     parts = path.split("/")
     assert parts[:4] == ["", "api", "admin", "users"]
+    assert parts[4] not in (".", ".."), path
     assert parts[5:] == ["after"], path
+
+
+@pytest.mark.parametrize("value", [".", ".."])
+def test_segment_refuses_dot_segments(value):
+    with pytest.raises(NotFound):
+        segment(value)
+
+
+@pytest.mark.parametrize("dots", ["..", "%2E%2E", "%2e%2e", "."])
+def test_dotted_id_never_reaches_api(web, fake_api, dots):
+    """Sent raw (curl --path-as-is) or percent-encoded, a dot segment as an id
+    gets a 404 after the sign-in check, with no call built from it."""
+    _sign_in(web, me=_me(is_superuser=True), fake_api=fake_api)
+    resp = web.post(f"/admin/users/{dots}/delete", data={"csrf": CSRF})
+    assert resp.status_code == 404
+    assert [c["path"] for c in fake_api.calls] == ["/admin/me"]

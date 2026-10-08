@@ -4,6 +4,7 @@ from urllib.parse import quote
 
 import requests
 from flask import current_app, has_request_context, request
+from werkzeug.exceptions import NotFound
 
 UNAVAILABLE = (502, {"error": "the scheduling service is unavailable"})
 
@@ -13,7 +14,14 @@ CLIENT_IP_HEADER = "X-Client-IP"
 
 
 def segment(value):
-    """Escape a value for use as one URL path segment."""
+    """Escape a value for use as one URL path segment.
+
+    "." and ".." are refused with a 404: quote() leaves dots alone, and as
+    dot segments they would make the API call go to a different path. No real
+    name, id or email can be either.
+    """
+    if value in (".", ".."):
+        raise NotFound()
     return quote(value, safe="@")
 
 
