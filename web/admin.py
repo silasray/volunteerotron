@@ -2,7 +2,7 @@ import hmac
 import secrets
 
 from flask import (
-    Blueprint, abort, flash, g, jsonify, redirect, render_template, request, session, url_for,
+    Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, session, url_for,
 )
 
 from . import api_client
@@ -695,5 +695,11 @@ def login():
 @bp.post("/logout")
 def logout():
     _check_csrf()
+    if token := session.get("api_token"):
+        # Revoke the token in the API too, so a copy of this session cookie
+        # stops working. If the API can't be reached, still sign out here.
+        status, _ = api_client.call("POST", "/auth/logout", token=token)
+        if status not in (204, 401):
+            current_app.logger.warning("logout: API token revocation failed (%s)", status)
     session.clear()
     return redirect(url_for("admin.index"))

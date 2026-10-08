@@ -2,14 +2,14 @@ import re
 import secrets
 import uuid
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 from flask_limiter import Limiter, RateLimitExceeded
 from flask_limiter.util import get_remote_address
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from .auth import issue_token
+from .auth import issue_token, require_user, revoke_tokens
 from .errors import ApiError
 from .models import (
     Event,
@@ -94,6 +94,15 @@ def login():
     if not user.check_password(password):
         raise ApiError("invalid name or password", 401)
     return jsonify(user=user.to_dict(), token=issue_token(user))
+
+
+@bp.post("/auth/logout")
+@require_user
+def logout():
+    """Revoke the caller's tokens: this one and any other the user holds."""
+    revoke_tokens(g.user)
+    db.session.commit()
+    return "", 204
 
 
 def _get_event(organization_name, event_name):

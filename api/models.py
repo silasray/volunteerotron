@@ -115,6 +115,9 @@ class User(db.Model):
     # happens only here in the API; use set_password()/check_password().
     password = db.Column(db.String(255), nullable=False)
     is_superuser = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    # Written into each API token; a token is only accepted while it matches.
+    # Logging out increments it, revoking every token issued before.
+    token_version = db.Column(db.Integer, nullable=False, default=0, server_default="0")
 
     memberships = db.relationship("UserOrganization", back_populates="user")
 

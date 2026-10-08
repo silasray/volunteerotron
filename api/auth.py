@@ -1,9 +1,10 @@
 """Bearer tokens for authenticated API calls.
 
-A token is the user's id signed with the API's SECRET_KEY and timestamped, so
-it can't be forged or altered, and expires after AUTH_TOKEN_MAX_AGE seconds.
-Nothing is stored server-side, so a token stays valid until it expires even
-after the web session that holds it is signed out.
+A token is the user's id and token_version, signed with the API's SECRET_KEY
+and timestamped, so it can't be forged or altered, and expires after
+AUTH_TOKEN_MAX_AGE seconds. Logging out (revoke_tokens) increments the user's
+token_version, so every token issued to them before stops working, in all
+browsers.
 """
 import uuid
 from functools import wraps
@@ -20,7 +21,12 @@ def _serializer():
 
 
 def issue_token(user):
-    return _serializer().dumps({"uid": str(user.id)})
+    return _serializer().dumps({"uid": str(user.id), "ver": user.token_version})
+
+
+def revoke_tokens(user):
+    """Invalidate every token issued to the user so far. The caller commits."""
+    user.token_version = User.token_version + 1  # in SQL, so concurrent revokes both count
 
 
 def _user_from_request():
@@ -32,10 +38,14 @@ def _user_from_request():
         # SignatureExpired is a BadSignature, so expiry is covered too.
         data = _serializer().loads(token, max_age=current_app.config["AUTH_TOKEN_MAX_AGE"])
         user_id = uuid.UUID(data["uid"])
+        version = data["ver"]
     except (BadSignature, KeyError, TypeError, ValueError):
         return None
     # Look the user up each time, so a deleted user's token stops working.
-    return db.session.get(User, user_id)
+    user = db.session.get(User, user_id)
+    if user is None or user.token_version != version:
+        return None
+    return user
 
 
 def require_user(view):

@@ -6,6 +6,8 @@ Layout:
   web/          the web app with the API replaced by a stub (fake_api)
   integration/  web and API wired together in-process: browser-level flows
 """
+import shutil
+
 import pytest
 
 # Settings the app factories read from the environment. Cleared so a developer's
@@ -24,13 +26,48 @@ def _clean_env(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _cheap_password_hashing(monkeypatch):
+    """Still scrypt (hashes keep the "scrypt:" prefix the model requires), but
+    with tiny work factors so creating users doesn't dominate test time."""
+    from werkzeug import security
+
+    from api import models
+
+    def cheap(password, method="scrypt", salt_length=16):
+        if method == "scrypt":
+            method = "scrypt:1024:8:1"
+        return security.generate_password_hash(password, method, salt_length)
+
+    monkeypatch.setattr(models, "generate_password_hash", cheap)
+
+
+@pytest.fixture(scope="session")
+def _empty_db_file(tmp_path_factory):
+    """A SQLite file with every table created, built once per run. Creating the
+    schema costs ~100ms, so each test copies this file instead."""
+    from api import create_app
+    from api.models import db
+
+    path = tmp_path_factory.mktemp("schema") / "empty.db"
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("DATABASE_URL", "sqlite:///" + str(path))
+        app = create_app()  # AUTO_CREATE_TABLES defaults on
+    with app.app_context():
+        db.engine.dispose()
+    return path
+
+
 @pytest.fixture
-def api_app(monkeypatch, tmp_path):
+def api_app(monkeypatch, tmp_path, _empty_db_file):
     """A fresh API app with its own SQLite database, tables created."""
     from api import create_app
     from api.models import db
 
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///" + str(tmp_path / "test.db"))
+    path = tmp_path / "test.db"
+    shutil.copyfile(_empty_db_file, path)
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///" + str(path))
+    monkeypatch.setenv("AUTO_CREATE_TABLES", "0")
     monkeypatch.setenv("API_SECRET_KEY", "test-api-secret")
     app = create_app()
     app.config["TESTING"] = True
