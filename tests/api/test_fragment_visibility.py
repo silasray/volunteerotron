@@ -6,7 +6,8 @@ Rules (api/routes.py, _visible_fragment_types and friends):
     volunteer form entirely: not listed, not in any option, not used to order
   - an enrichment type is offered only while at least one field is visible
   - only options of offered types can be chosen; links to options of types
-    that aren't offered (staff-only) survive the volunteer's saves untouched
+    that aren't offered (staff-only) survive the volunteer's saves untouched,
+    and are left out of the offer the volunteer loads or gets back on save
   - an offered option with no values in visible fields is still listed, with
     no fragments (the page labels it "(no details)")
 
@@ -216,12 +217,18 @@ def test_hiding_and_showing_takes_effect_at_once(api, event, make_type, make_opt
     assert _put(api, option).status_code == 201
 
 
-# ---------------------------------------------------------------- staff-only links survive saves
+# ---------------------------------------------------------------- staff-only links: kept, never shown
 
 
 def _links(db_ctx):
     db_ctx.expire_all()
     return {str(e) for e in db_ctx.scalars(select(VolunteerOfferEnrichment.enrichment_id))}
+
+
+def _loaded(api):
+    resp = api.get(f"{BASE}/offers/{EMAIL}")
+    assert resp.status_code == 200
+    return resp.json["enrichment_ids"]
 
 
 def test_links_to_hidden_type_survive_volunteer_saves(
@@ -237,13 +244,22 @@ def test_links_to_hidden_type_survive_volunteer_saves(
     db_ctx.expire_all()
     updated_on = db_ctx.scalar(select(VolunteerOffer)).updated_on
 
-    # The volunteer's page can't show Team, so its saves never include gate.
-    assert _put(api, medium).status_code == 200
+    # The volunteer no longer sees gate, on load or in a save's response...
+    assert _loaded(api) == [str(medium.id)]
+    saved = _put(api, medium)
+    assert saved.status_code == 200
+    assert saved.json["enrichment_ids"] == [str(medium.id)]
+    # ...but it stays on the offer, and a save without it changes nothing.
     assert _links(db_ctx) == {str(medium.id), str(gate.id)}
-    assert db_ctx.scalar(select(VolunteerOffer)).updated_on == updated_on  # nothing changed
+    assert db_ctx.scalar(select(VolunteerOffer)).updated_on == updated_on
 
-    assert _put(api, windows=[window]).status_code == 200  # drops medium, keeps gate
+    saved = _put(api, windows=[window])  # drops medium, keeps gate
+    assert saved.json["enrichment_ids"] == []
     assert _links(db_ctx) == {str(gate.id)}
+
+    # Showing a field again makes the link visible again.
+    _set_hidden(api, admin_headers, field(staff, "Label"), False)
+    assert _loaded(api) == [str(gate.id)]
 
 
 def test_volunteer_cannot_add_hidden_type_option(api, event, make_type, make_option, db_ctx):
@@ -273,5 +289,18 @@ def test_single_choice_limit_ignores_hidden_types(api, event, make_type, make_op
     db_ctx.add_all([VolunteerOfferEnrichment(volunteer_offer=offer, enrichment=a),
                     VolunteerOfferEnrichment(volunteer_offer=offer, enrichment=b)])
     db_ctx.commit()
-    assert _put(api).status_code == 200
+    saved = _put(api)
+    assert saved.status_code == 200
+    assert saved.json["enrichment_ids"] == []
+    assert _loaded(api) == []
     assert _links(db_ctx) == {str(a.id), str(b.id)}
+
+
+def test_partly_hidden_type_links_stay_visible(api, event, make_type, make_option, admin_headers):
+    """Only types with every field hidden are staff-only; hiding some fields
+    keeps the volunteer's choice visible to them."""
+    etype = make_type(event, fields=(("Label", "text", False), ("Code", "text", False)))
+    option = make_option(etype, {"Label": "Gate", "Code": "G1"})
+    _put(api, option)
+    _set_hidden(api, admin_headers, field(etype, "Code"), True)
+    assert _loaded(api) == [str(option.id)]

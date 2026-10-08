@@ -201,12 +201,17 @@ def _find_offer(event, email):
 
 
 def _offer_dict(offer):
+    # Links to options of types the volunteer isn't offered (every field hidden)
+    # are staff-only: kept on the offer, never shown to the volunteer.
+    selectable = {en.id for et in _selectable_enrichment_types(offer.event) for en in et.enrichments}
     return {
         **offer.to_dict(),
         "window_ids": sorted(
             str(wo.volunteer_window_id) for wo in offer.window_offers if not wo.cancelled
         ),
-        "enrichment_ids": sorted(str(oe.enrichment_id) for oe in offer.offer_enrichments),
+        "enrichment_ids": sorted(
+            str(oe.enrichment_id) for oe in offer.offer_enrichments if oe.enrichment_id in selectable
+        ),
     }
 
 
