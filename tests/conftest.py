@@ -7,6 +7,8 @@ Layout:
   integration/  web and API wired together in-process: browser-level flows
   postgres/     on a real Postgres (Docker or TEST_DATABASE_URL), including the
                 api/ modules run again; skipped without one
+  browser/      the pages' JavaScript in headless Edge or Chrome (Selenium), against
+                the real web app and API; skipped without a browser
 """
 import shutil
 

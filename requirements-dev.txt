@@ -2,3 +2,4 @@
 pytest>=8.0
 pytest-cov>=5.0
 testcontainers[postgres]>=4.15
+selenium>=4.20
