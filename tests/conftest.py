@@ -5,6 +5,8 @@ Layout:
   api/          the API app through Flask's test client, on a throwaway SQLite file
   web/          the web app with the API replaced by a stub (fake_api)
   integration/  web and API wired together in-process: browser-level flows
+  postgres/     on a real Postgres (Docker or TEST_DATABASE_URL), including the
+                api/ modules run again; skipped without one
 """
 import shutil
 

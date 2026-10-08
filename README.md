@@ -30,9 +30,12 @@ To use Postgres instead, set `DATABASE_URL`, for example `postgresql+psycopg://u
 .venv\Scripts\python -m pytest                       # whole suite
 .venv\Scripts\python -m pytest --cov                 # with a coverage report
 .venv\Scripts\python -m pytest --cov --cov-report=html   # browsable report in htmlcov/
+.venv\Scripts\python -m pytest -m "not postgres"      # skip the Postgres tests (much faster)
 ```
 
 `tests/conftest.py` describes how the tests are laid out.
+
+The tests in `tests/postgres/` run against Postgres 18, the version RDS runs. They start a throwaway `postgres:18` container with Docker, so Docker Desktop must be running. To use an existing server instead, set `TEST_DATABASE_URL` to a user that can create databases. With neither, those tests are skipped. `tests/postgres/conftest.py` has the details.
 
 ### Changing the schema
 

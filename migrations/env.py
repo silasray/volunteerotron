@@ -10,18 +10,16 @@ from alembic import context
 config = context.config
 
 # Interpret the config file for Python logging.
-# This line sets up loggers basically.
-fileConfig(config.config_file_name)
+# This line sets up loggers basically. Existing loggers stay enabled: the
+# "migrate" Lambda command runs in a warm API instance that keeps serving
+# requests, and the default would silence the app's own loggers there.
+fileConfig(config.config_file_name, disable_existing_loggers=False)
 logger = logging.getLogger('alembic.env')
 
 
 def get_engine():
-    try:
-        # this works with Flask-SQLAlchemy<3 and Alchemical
-        return current_app.extensions['migrate'].db.get_engine()
-    except (TypeError, AttributeError):
-        # this works with Flask-SQLAlchemy>=3
-        return current_app.extensions['migrate'].db.engine
+    # Flask-SQLAlchemy >= 3.1 (requirements.txt); get_engine() is deprecated.
+    return current_app.extensions['migrate'].db.engine
 
 
 def get_engine_url():
