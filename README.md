@@ -23,6 +23,17 @@ Locally the API uses a SQLite file in `instance/` and creates any missing tables
 
 To use Postgres instead, set `DATABASE_URL`, for example `postgresql+psycopg://user:pass@host/db`. Then run migrations with `flask --app api db upgrade`, and set `AUTO_CREATE_TABLES=0`.
 
+### Tests
+
+```powershell
+.venv\Scripts\python -m pip install -r requirements-dev.txt
+.venv\Scripts\python -m pytest                       # whole suite
+.venv\Scripts\python -m pytest --cov                 # with a coverage report
+.venv\Scripts\python -m pytest --cov --cov-report=html   # browsable report in htmlcov/
+```
+
+`tests/conftest.py` describes how the tests are laid out.
+
 ### Changing the schema
 
 After editing `api/models.py`, generate a migration and review it before committing:

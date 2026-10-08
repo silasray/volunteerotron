@@ -6,3 +6,6 @@ instance/
 .build/
 .aws-sam/
 samconfig.toml
+.coverage
+.coverage.*
+htmlcov/

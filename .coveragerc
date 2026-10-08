@@ -1,0 +1,19 @@
+# Used by `pytest --cov` (pytest-cov).
+[run]
+# The whole project, so modules no test imports still show (at 0%).
+source = .
+omit =
+    tests/*
+    migrations/*
+    scripts/*
+    run_api.py
+    run_web.py
+branch = True
+
+[report]
+show_missing = True
+skip_covered = True
+skip_empty = True
+
+[html]
+directory = htmlcov
