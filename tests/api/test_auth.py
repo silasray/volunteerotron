@@ -1,3 +1,5 @@
+import pytest
+
 from .conftest import PASSWORD
 
 
@@ -53,3 +55,9 @@ def test_token_without_version_rejected(api, make_user, db_ctx):
     user = make_user("alice")
     old = URLSafeTimedSerializer("test-api-secret", salt="api-auth-token").dumps({"uid": str(user.id)})
     assert api.get("/api/admin/me", headers={"Authorization": "Bearer " + old}).status_code == 401
+
+
+@pytest.mark.parametrize("body", [["alice", "pw"], "alice", None])
+def test_login_body_must_be_a_json_object(api, body):
+    resp = api.post("/api/auth/login", json=body)
+    assert (resp.status_code, resp.json) == (400, {"error": "a JSON object body is required"})

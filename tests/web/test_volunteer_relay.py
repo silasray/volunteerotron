@@ -74,3 +74,8 @@ def test_save_requires_email(web, fake_api, body):
     resp = web.put(PATH + "/offer", data=json.dumps(body), content_type="application/json")
     assert resp.status_code == 400
     assert fake_api.calls == []
+
+
+def test_home_page_needs_no_api(web, fake_api):
+    assert web.get("/").status_code == 200
+    assert fake_api.calls == []

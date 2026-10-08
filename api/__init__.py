@@ -4,7 +4,7 @@ import click
 from flask import Flask
 from flask.cli import with_appcontext
 from flask_migrate import Migrate
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from . import ratelimit_storage  # noqa: F401  (registers the appdb:// storage scheme)
 from .models import User, db
@@ -14,6 +14,12 @@ MIGRATIONS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__
 
 def _flag(name, default):
     return os.environ.get(name, default) in ("1", "true", "True")
+
+
+def _sqlite_foreign_keys(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 def create_app():
@@ -61,6 +67,11 @@ def create_app():
         }
 
     db.init_app(app)
+    if database_url.startswith("sqlite"):
+        # SQLite ignores foreign keys unless asked, per connection; Postgres
+        # always enforces them, so local runs (and tests) should too.
+        with app.app_context():
+            event.listen(db.engine, "connect", _sqlite_foreign_keys)
     if _flag("DB_IAM_AUTH", "0"):
         from .db_auth import enable_iam_auth
 
