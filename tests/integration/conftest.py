@@ -19,3 +19,19 @@ def stack(monkeypatch, web_app, api):
 
     monkeypatch.setattr(api_client, "_http", http)
     return web_app.test_client()
+
+
+@pytest.fixture
+def db_ctx(api_app):
+    from api.models import db
+
+    with api_app.app_context():
+        yield db.session
+
+
+@pytest.fixture
+def world(db_ctx):
+    """See tests/world.py."""
+    from tests.world import build_world
+
+    return build_world(db_ctx)

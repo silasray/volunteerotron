@@ -8,7 +8,7 @@ import pytest
 from api.auth import issue_token
 from api.models import Event, Organization, User, UserOrganization, db
 
-PASSWORD = "correct horse battery"  # meets User.PASSWORD_MIN_LENGTH
+from tests.world import PASSWORD  # noqa: F401  (tests import it from here too)
 
 
 @pytest.fixture
