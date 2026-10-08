@@ -4,6 +4,7 @@
   <h1>Admin sign in</h1>
   <form method="post" action="{{ url_for('admin.login') }}" class="login">
     <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
     {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
     <label for="name">Name</label>
     <input type="text" id="name" name="name" value="{{ name }}" autocomplete="username" required autofocus>

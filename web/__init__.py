@@ -17,7 +17,10 @@ def create_app():
         SESSION_COOKIE_SAMESITE="Lax",
         # Set SESSION_COOKIE_SECURE=1 when served over HTTPS.
         SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE") == "1",
-        PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+        # Sign-in times out when the API token expires (the API's AUTH_TOKEN_MAX_AGE,
+        # 8h). The cookie outlives it so a timed-out browser can be sent to the
+        # login page rather than shown a 404 (see admin._end_expired_session).
+        PERMANENT_SESSION_LIFETIME=timedelta(days=30),
     )
 
     from . import admin, routes

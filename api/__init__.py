@@ -32,7 +32,7 @@ def create_app():
         # Signs auth tokens. Set a long random API_SECRET_KEY outside development,
         # distinct from the web tier's SECRET_KEY.
         SECRET_KEY=os.environ.get("API_SECRET_KEY", "dev-api"),
-        # Token lifetime in seconds; matches the web session lifetime (8h).
+        # Token lifetime in seconds: how long an admin sign-in lasts (8h).
         AUTH_TOKEN_MAX_AGE=int(os.environ.get("AUTH_TOKEN_MAX_AGE", 8 * 60 * 60)),
         # Failed logins allowed per account name.
         LOGIN_RATE_LIMIT=os.environ.get("LOGIN_RATE_LIMIT", "5 per minute;20 per hour"),

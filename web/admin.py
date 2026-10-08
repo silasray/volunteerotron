@@ -57,6 +57,41 @@ def _redirects_to_json(response):
     return jsonify(ok=True, reload=response.location)
 
 
+EXPIRED = "Your session has expired. Please sign in again."
+
+
+def _remember_page():
+    """On a page load, note the page so signing in again returns to it."""
+    if request.method == "GET":
+        query = request.query_string.decode()
+        session["next"] = request.path + ("?" + query if query else "")
+
+
+def _after_login_url(next_url):
+    """Where to go after signing in: the remembered admin page, if any.
+
+    Only paths in this site's admin area are followed. The page checks access
+    as usual, so one this user can't see still 404s.
+    """
+    admin = url_for("admin.index")  # "/admin", below any script root
+    if (
+        isinstance(next_url, str)
+        and (next_url == admin or next_url.startswith(admin + "/") or next_url.startswith(admin + "?"))
+        and "\\" not in next_url
+    ):
+        return next_url
+    return admin
+
+
+def _end_expired_session():
+    """Sign out after the API rejected the token, remembering why, so admin
+    pages send this browser to the login page instead of a 404."""
+    session.clear()
+    session.permanent = True
+    session["expired"] = True
+    _remember_page()
+
+
 def _me():
     """The signed-in user's details and organizations from the API, or None.
 
@@ -70,16 +105,20 @@ def _me():
             if status == 200:
                 g.me = body
             elif status == 401:
-                session.clear()
+                _end_expired_session()
             else:
                 abort(502)
     return g.me
 
 
 def _require_me():
-    # Admin pages 404 rather than redirect, so they don't reveal that they exist.
+    # Admin pages 404 rather than redirect, so they don't reveal that they
+    # exist, except to a browser whose sign-in just timed out.
     me = _me()
     if me is None:
+        if session.get("expired") and request.method == "GET":
+            _remember_page()
+            abort(redirect(url_for("admin.index")))
         abort(404)
     return me
 
@@ -107,11 +146,12 @@ def _render(template, me, org_name=None, status=200, **context):
     ), status
 
 
-@bp.get("")
+@bp.get("", strict_slashes=False)  # /admin/ too
 def index():
     me = _me()
     if me is None:
-        return render_template("admin_login.html", csrf=csrf_token(), name="", error=None)
+        return render_template("admin_login.html", csrf=csrf_token(), name="", error=None,
+                               notice=EXPIRED if session.get("expired") else None)
     return _render("admin.html", me)
 
 
@@ -126,7 +166,7 @@ def _admin_api(method, path, **kwargs):
     """Call a superuser API endpoint; ends the session or 502s like the pages do."""
     status, body = api_client.call(method, "/admin" + path, token=session["api_token"], **kwargs)
     if status == 401:
-        session.clear()
+        _end_expired_session()
         abort(redirect(url_for("admin.index")))
     if status >= 500:
         abort(502)
@@ -342,7 +382,7 @@ def _manage_api(method, org_name, event_name, path, json=None):
         token=session["api_token"], json=json,
     )
     if status == 401:
-        session.clear()
+        _end_expired_session()
         abort(redirect(url_for("admin.index")))
     if status == 404:
         abort(404)
@@ -408,7 +448,7 @@ def _config_api(method, org_name, event_name, path, json=None):
         token=session["api_token"], json=json,
     )
     if status == 401:
-        session.clear()
+        _end_expired_session()
         abort(redirect(url_for("admin.index")))
     if status == 404:
         abort(404)
@@ -603,7 +643,7 @@ def create_event():
             "admin.configure_event", org_name=org_name, event_name=body["name"]
         ))
     if status == 401:
-        session.clear()
+        _end_expired_session()
         return redirect(url_for("admin.index"))
     if status in (403, 404):
         # Membership or admin rights changed since the page was loaded.
@@ -631,12 +671,13 @@ def login():
             "POST", "/auth/login", json={"name": name, "password": password}
         )
         if status == 200:
+            next_url = _after_login_url(session.get("next"))
             # New session on login so a pre-login session can't be fixed onto the user.
             session.clear()
             session.permanent = True
             session["user"] = {"id": body["user"]["id"], "name": body["user"]["name"]}
             session["api_token"] = body["token"]
-            return redirect(url_for("admin.index"))
+            return redirect(next_url)
         if status in (400, 401):
             error = "Invalid name or password."
         elif status == 429:
