@@ -23,7 +23,10 @@ def csrf_token():
 
 def _check_csrf():
     sent = request.form.get("csrf", "")
-    if not hmac.compare_digest(sent, session.get("csrf", "")):
+    expected = session.get("csrf")
+    # No token in the session means none was issued, so nothing can match
+    # (otherwise an empty form value would equal the empty default).
+    if not expected or not hmac.compare_digest(sent, expected):
         abort(400)
 
 
