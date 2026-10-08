@@ -279,21 +279,22 @@ def test_partly_hidden_type_stays_choosable(api, event, make_type, make_option, 
     assert _put(api, option).status_code == 200
 
 
-def test_single_choice_limit_ignores_hidden_types(api, event, make_type, make_option, db_ctx):
-    """Staff may link several options of a hidden single-choice type; the
-    volunteer's save neither trips the limit nor drops them."""
+def test_hidden_single_choice_link_survives_save(api, event, make_type, make_option, db_ctx):
+    """A staff link to a hidden single-choice type survives the volunteer's saves
+    and isn't shown to them. (Several links to one single-choice type must be
+    impossible: see test_single_choice_type_never_gets_two_links.)"""
     staff = make_type(event, name="Team", fields=(("Label", "text", True),), interaction="select")
-    a, b = make_option(staff, {"Label": "A"}), make_option(staff, {"Label": "B"})
+    a = make_option(staff, {"Label": "A"})
+    make_option(staff, {"Label": "B"})
     assert _put(api).status_code == 201
     offer = db_ctx.scalar(select(VolunteerOffer))
-    db_ctx.add_all([VolunteerOfferEnrichment(volunteer_offer=offer, enrichment=a),
-                    VolunteerOfferEnrichment(volunteer_offer=offer, enrichment=b)])
+    db_ctx.add(VolunteerOfferEnrichment(volunteer_offer=offer, enrichment=a))
     db_ctx.commit()
     saved = _put(api)
     assert saved.status_code == 200
     assert saved.json["enrichment_ids"] == []
     assert _loaded(api) == []
-    assert _links(db_ctx) == {str(a.id), str(b.id)}
+    assert _links(db_ctx) == {str(a.id)}
 
 
 def test_partly_hidden_type_links_stay_visible(api, event, make_type, make_option, admin_headers):
