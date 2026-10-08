@@ -23,10 +23,21 @@ def stack(monkeypatch, web_app, api):
 
 @pytest.fixture
 def db_ctx(api_app):
+    """A database session owned by the test, inside an app context.
+
+    Separate from db.session: test-client requests reuse this app context and
+    close db.session when they finish, which would detach the test's objects.
+    Objects keep their loaded values across commits; call expire_all() before
+    reading what a request changed.
+    """
+    from sqlalchemy.orm import Session
+
     from api.models import db
 
     with api_app.app_context():
-        yield db.session
+        session = Session(db.engine, expire_on_commit=False)
+        yield session
+        session.close()
 
 
 @pytest.fixture
